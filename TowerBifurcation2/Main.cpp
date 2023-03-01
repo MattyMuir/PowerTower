@@ -1,6 +1,6 @@
 #include <iostream>
 #include <complex>
-#include <iomanip>
+#include <format>
 #include <thread>
 
 #include "../bitmap_image.hpp"
@@ -10,9 +10,9 @@
 // ===== Parameters =====
 static constexpr double xmin = -5, xmax = 3, ymin = -1, ymax = 10;
 static constexpr size_t w = 3840, h = 2160;
-static constexpr size_t preIter = 100000;
-static constexpr size_t postIter = 100000;
-static constexpr double delX = (xmax - xmin) / w;
+static constexpr size_t preIter = 10000;
+static constexpr size_t postIter = 10000;
+static constexpr double delX = (xmax - xmin) / w / 100;
 
 void StrideComputeValues(bitmap_image& bmp, int threadIndex, int numThreads)
 {
@@ -21,10 +21,15 @@ void StrideComputeValues(bitmap_image& bmp, int threadIndex, int numThreads)
 
     for (size_t i = threadIndex; i < totalIter; i += numThreads)
     {
+        // Log progress (based on thread 0)
+        if (threadIndex == 0 && i / numThreads % 10 == 0)
+            std::cout << std::format("{:.3f}%\r", (double)i / totalIter * 100.0);
+
         // Evaluate function at value and store sequence in 'seqVals'
         std::vector<std::complex<double>> seqVals;
         Eval({ xmin + delX * i, 0 }, seqVals, preIter, postIter);
 
+        // Plot values on bitmap
         for (const std::complex<double>& v : seqVals)
         {
             size_t pixX = i * w / totalIter;

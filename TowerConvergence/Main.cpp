@@ -25,11 +25,12 @@ void StrideComputePixels(bitmap_image& bmp, int threadIndex, int numThreads)
         {
             // Log progress (based on thread 0)
             if (threadIndex == 0 && index % 10000 == 0)
-                std::cout << std::setprecision(3) << 100.0 * index / (w * h) << "%" << "\t\r";
+                std::cout << std::format("{:.3f}%\r", (double)index / (w * h) * 100.0);
 
             // Check if pixel must be calculated
             if (index % numThreads == threadIndex)
             {
+                // Calculate if sequence converges
                 std::complex<double> c
                     { (xmax - xmin) / w * xi + xmin,
                     (ymax - ymin) / h * yi + ymin };

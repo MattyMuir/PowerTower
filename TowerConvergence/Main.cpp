@@ -2,64 +2,40 @@
 #include <iomanip>
 #include <complex>
 #include <thread>
-using namespace std::complex_literals;
 
-#include "bitmap_image.hpp"
-#include "Timer.h"
-#include "SimpleSet.h"
+#include "../bitmap_image.hpp"
+#include "../Timer.h"
+#include "../eval.h"
 
-#define IsFinite(z) (std::isfinite(z.real()) && std::isfinite(z.imag()))
-#define E 2.71828182845904523536
+// ===== Parameters =====
+static constexpr size_t w = 2048, h = 2048;
+static constexpr double xmin = -10 , xmax = 10, ymin = -10, ymax = 10;
+static constexpr size_t iter = 2000;
+static constexpr double threshold = 1000.0;
 
-//double xmin = -4.15, xmax = -4.10, ymin = -0.025, ymax = 0.025;
-double xmin = -5 , xmax = 5, ymin = -5, ymax = 5;
-int iter = 500;
-double threshold = 1000;
-
-void Branch(bitmap_image& bmp, int branchIndex, int branchNum)
+void StrideComputePixels(bitmap_image& bmp, int threadIndex, int numThreads)
 {
-    int h = bmp.height();
-    int w = bmp.width();
+    int imgW = bmp.width();
+    int imgH = bmp.height();
 
-    double ep = 1e-7;
-    auto hash = [](const std::complex<long double>& obj) { return obj.imag() * 723657 + obj.real() * 2938756; };
-    auto pred = [ep](const std::complex<long double>& obj1, const std::complex<long double>& obj2) { return abs(obj1.real() - obj2.real()) < ep && abs(obj1.imag() - obj2.imag()) < ep; };
-    DeclareSet(set, std::complex<long double>, 8);
-
-    std::complex<long double> c, z;
-    int index = 0;
+    size_t index = 0;
     for (int yi = 0; yi < h; yi++)
     {
         for (int xi = 0; xi < w; xi++)
         {
-            if (branchIndex == 0 && index % 10000 == 0)
-            {
+            // Log progress (based on thread 0)
+            if (threadIndex == 0 && index % 10000 == 0)
                 std::cout << std::setprecision(3) << 100.0 * index / (w * h) << "%" << "\t\r";
-            }
-            if (index % branchNum == branchIndex)
-            {
-                set.clear();
-                c = (xmax - xmin) / w * xi + xmin + ((ymax - ymin) / h * yi + ymin) * 1i;
-                z = c;
 
-                for (int i = 0; i < iter; i++)
-                {
-                    z = pow(c, z);
-                    if (!IsFinite(z))
-                    {
-                        break;
-                    }
-                    if (set.contains(z) && IsFinite(z))
-                    {
-                        bmp.set_pixel(xi, h - yi - 1, 0, 0, 0);
-                        break;
-                    }
-                    set.insert(z);
-                }
-                if (abs(z) < threshold)
-                {
-                    bmp.set_pixel(xi, h - yi - 1, 0, 0, 0);
-                }
+            // Check if pixel must be calculated
+            if (index % numThreads == threadIndex)
+            {
+                std::complex<double> c
+                    { (xmax - xmin) / w * xi + xmin,
+                    (ymax - ymin) / h * yi + ymin };
+
+                if (Converges(c, iter, threshold)) bmp.set_pixel(xi, h - yi - 1, 0, 0, 0);
+                else bmp.set_pixel(xi, h - yi - 1, 255, 255, 255);
             }
             index++;
         }
@@ -68,27 +44,28 @@ void Branch(bitmap_image& bmp, int branchIndex, int branchNum)
 
 int main()
 {
-    int w = 3840, h = 3840;
+    // Initialize image
     bitmap_image bmp(w, h);
-    bmp.clear(255);
 
-    int threadNum = std::thread::hardware_concurrency() - 1;
+    // Prepare thread vector
+    int threadNum = std::thread::hardware_concurrency();
     std::vector<std::thread> threads;
     threads.reserve(threadNum);
 
-    Timer t;
+    TIMER(calculation);
     std::cout << "Calculating..." << std::endl;
-    for (int t = 0; t < threadNum; t++)
-    {
-        threads.emplace_back(Branch, std::ref(bmp), t, threadNum);
-    }
-    for (int t = 0; t < threadNum; t++)
-    {
-        threads[t].join();
-    }
-    t.Stop();
 
-    std::cout << std::setprecision(5) << "Took: " << t.duration * 0.001 << "ms" << std::endl;
-    std::cout << "Saving..." << std::endl;
-    bmp.save_image("C:\\Users\\matty\\Desktop\\conv.bmp");
+    // Initialize threads
+    for (int t = 0; t < threadNum; t++)
+        threads.emplace_back(StrideComputePixels, std::ref(bmp), t, threadNum);
+
+    // Wait for threads
+    for (int t = 0; t < threadNum; t++)
+        threads[t].join();
+
+    STOP_LOG(calculation);
+
+    std::cout << "Saving...\n";
+    bmp.save_image("C:\\Users\\matty\\Desktop\\output.bmp");
+    std::cout << "Saved.\n";
 }

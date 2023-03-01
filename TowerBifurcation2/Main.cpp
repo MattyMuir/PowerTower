@@ -1,46 +1,65 @@
 #include <iostream>
 #include <complex>
-using namespace std::complex_literals;
+#include <iomanip>
+#include <thread>
 
-#include "bitmap_image.hpp"
-#include "Timer.h"
+#include "../bitmap_image.hpp"
+#include "../Timer.h"
+#include "../eval.h"
+
+// ===== Parameters =====
+static constexpr double xmin = -5, xmax = 3, ymin = -1, ymax = 10;
+static constexpr size_t w = 3840, h = 2160;
+static constexpr size_t preIter = 100000;
+static constexpr size_t postIter = 100000;
+static constexpr double delX = (xmax - xmin) / w;
+
+void StrideComputeValues(bitmap_image& bmp, int threadIndex, int numThreads)
+{
+    size_t totalIter = (xmax - xmin) / delX;
+    size_t logMultiple = std::max(totalIter / 200, 1ULL);
+
+    for (size_t i = threadIndex; i < totalIter; i += numThreads)
+    {
+        // Evaluate function at value and store sequence in 'seqVals'
+        std::vector<std::complex<double>> seqVals;
+        Eval({ xmin + delX * i, 0 }, seqVals, preIter, postIter);
+
+        for (const std::complex<double>& v : seqVals)
+        {
+            size_t pixX = i * w / totalIter;
+            size_t pixY = h - (abs(v) - ymin) / (ymax - ymin) * h;
+            if (pixX < w && pixY >= 0 && pixY < h)
+                bmp.set_pixel(pixX, pixY, 0, 0, 0);
+        }
+    }
+}
 
 int main()
 {
-    double xmin = -5, xmax = 3, ymin = -1, ymax = 10;
-    //double xmin = -4.2, xmax = -4, ymin = -1, ymax = 10;
-    int w = 3840, h = 3840;
+    // Initialize image
     bitmap_image bmp(w, h);
     bmp.clear(255);
+
+    // Prepare thread vector
+    int threadNum = std::thread::hardware_concurrency();
+    std::vector<std::thread> threads;
+    threads.reserve(threadNum);
+
+    TIMER(t);
+    std::cout << "Calculating..." << std::endl;
+
+    // Initialize threads
+    for (int t = 0; t < threadNum; t++)
+        threads.emplace_back(StrideComputeValues, std::ref(bmp), t, threadNum);
+
+    // Wait for threads
+    for (int t = 0; t < threadNum; t++)
+        threads[t].join();
     
-    int preIter = 1000;
-    int postIter = 1000;
+    STOP_LOG(t);
 
-    Timer t;
-    std::complex<long double> c, z;
-    for (int xi = 0; xi < w; xi++)
-    {
-        c = (xmax - xmin) / w * xi + xmin + 0.001i;
-        z = c;
-
-        for (int i = 0; i < preIter; i++)
-        {
-            z = pow(c, z);
-        }
-        for (int i = 0; i < postIter; i++)
-        {
-            z = pow(c, z);
-
-            int y = h - (abs(z) - ymin) / (ymax - ymin) * h;
-            if (y >= 0 && y < h)
-            {
-                bmp.set_pixel(xi, y, 0, 0, 0);
-            }
-        }
-    }
-    t.Stop();
-
-    std::cout << "Saving..." << std::endl;
+    std::cout << "Saving...\n";
     bmp.save_image("C:\\Users\\matty\\Desktop\\bi.bmp");
-    std::cout << "Math took: " << t.duration * 0.001 << "ms" << std::endl;
+    std::cout << "Saved.\n";
 }
